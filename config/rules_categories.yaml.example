@@ -1,0 +1,29 @@
+# Rules Categories Configuration Example
+# Copy this file to config/rules_categories.yaml and customize as needed
+# Separates Prometheus rules (metric-based) from Logging rules (log-based)
+
+categories:
+  # Premium (Nextgen) - cluster-next-gen rules
+  premium:
+    prometheus:
+      - "rules/cluster-next-gen"
+    logging:
+      - "rules/logging/dedicated/swat/cluster-next-gen"
+  
+  # Dedicated - dedicated cluster rules
+  dedicated:
+    prometheus:
+      - "rules/dedicated"
+    logging:
+      - "rules/logging/dedicated/swat/data-plane"
+      - "rules/logging/dedicated/swat/control-plane"
+  
+  # Essential (Serverless/DevTier)
+  essential:
+    prometheus:
+      - "rules/serverless"
+    logging:
+      - "rules/logging/serverless"
+
+# Repository base path (can be overridden by RUNBOOKS_REPO_PATH env var)
+repo_path: "/Users/nolouch/program/docs/runbooks"

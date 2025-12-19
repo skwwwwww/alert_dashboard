@@ -1,0 +1,104 @@
+# ===========================================
+# Jira Alert Frequency Dashboard - .gitignore
+# ===========================================
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Python Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+
+# Python Testing & Coverage
+.coverage
+.coverage.*
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+logs/
+# Python Logs
+*.log
+
+# Environment Variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Node.js / Frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Frontend Build Output
+frontend/dist/
+frontend/build/
+dist/
+build/
+
+# TypeScript
+*.tsbuildinfo
+
+# Frontend Cache
+.cache/
+.parcel-cache/
+
+# IDE Files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Database Files
+*.db
+*.sqlite
+*.sqlite3
+
+# Jira Specific
+jira_cache/
+*.jira_cache
+
+# GitHub Repository Cache
+runbooks_cache/
+
+# Backup Files
+*.bak
+*.backup
+*.old
+
+# Archive Files
+*.zip
+*.tar.gz
+*.rar
+*.7z
+
+# Temporary Files
+tmp/
+temp/
+static/
+data/
+# Release Artifacts
+alerts-platform-v2/generated/
+alerts-platform-v2/backend/alerts-platform-v2
+generated/

@@ -1,0 +1,80 @@
+categories:
+  "Resilience":
+    - resilience
+  "Core - Columnar Infra Service":
+    - tiflash
+    - tiflash-worker
+  "Core - Data Replication Service":
+    - ticdc-kernel
+    - ticdc
+  "Core - Disaster Recovery Service":
+    - next-gen-br
+    - next-gen-import
+    - br
+    - next-gen-br-kernel
+  "Core - Optimizer":
+    - tidb-optimizer
+  "Core - Query Executor":
+    - tidb-executor
+  "Core - SQL Data & Service":
+    - tidb
+    - tidb-sql-data
+  "Core - SQL Infra":
+    - tidb-worker
+    - tidb-auditlog
+  "Core - Scheduling":
+    - pd
+  "Core - Txn":
+    - tidb-txn
+  "Core - Storage Service":
+    - tikv
+    - tikv-worker
+  "Core - TiProxy":
+    - tiproxy
+  "Platform - Account":
+    - account-server
+  "Platform - Billing":
+    - metering-server
+    - billing-server
+  "Platform - Clinic":
+    - o11y
+    - vmagent
+    - metrics-server
+    - clinic
+  "Platform - DBaaS FE":
+  "Platform - Global & Region Service":
+    - tidb-management-service
+    - observability-regional-server
+    - dedicated-regional-server
+    - core-svc
+  "Platform - Next Gen ControlPlane":
+    - cluster-ng-service
+    - ng-auto-scaler
+  "Cluster Service & operator":
+    - lightning
+    - infra-api
+    - manager
+    - dataplane-controller
+    - gateway
+    - api-gateway
+    - dataservice
+    - data-migration
+    - config-manager
+    - infra-provider
+    - tidb-sql
+    - import-controller
+    - quota-exporter
+    - cluster-autoscaler
+    - node
+    - cert-manager
+    - kubernetes
+    - metrics-integration
+    - networking
+  "TiOperator":
+    - tidb-operator
+    - dataflow-service
+  "Serverless":
+    - Serverless
+    - serverless-svc
+    - ecosystem-server
+    - etcd
