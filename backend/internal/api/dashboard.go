@@ -76,6 +76,11 @@ func buildClusterFilterCondition() string {
 	return " AND (cluster_id IS NULL OR cluster_id NOT IN (" + strings.Join(quoted, ",") + "))"
 }
 
+// buildStabilityGovernanceFilterCondition builds SQL condition to only include alerts with stability_governance label
+func buildStabilityGovernanceFilterCondition() string {
+	return " AND stability_governance != '' AND stability_governance IS NOT NULL"
+}
+
 // DashboardDataResponse matches the frontend expectation
 type DashboardDataResponse struct {
 	TotalAlerts    MetricStat       `json:"totalAlerts"`
@@ -217,10 +222,12 @@ func GetDashboardData(c *gin.Context) {
 
 	// Build cluster filter to exclude test clusters
 	clusterFilter := buildClusterFilterCondition()
+	// Build stability governance filter to only include alerts with stability_governance label
+	stabilityFilter := buildStabilityGovernanceFilterCondition()
 
 	// Helper to fetch basic stats for a range
 	fetchStats := func(start, end string) (total, prod, nonProd, critical int) {
-		queryBase := `FROM issues WHERE is_alert = 1 ` + envCondition + filterCondition + clusterFilter + ` AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?`
+		queryBase := `FROM issues WHERE is_alert = 1 ` + envCondition + filterCondition + clusterFilter + stabilityFilter + ` AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?`
 		var result struct {
 			Total    int
 			Prod     int
@@ -243,23 +250,23 @@ func GetDashboardData(c *gin.Context) {
 	// 1.5 Rate Stats (Current)
 	var currFake int64
 	db.DB.Model(&models.Issue{}).
-		Where("is_alert = 1 "+envCondition+filterCondition+clusterFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? AND status = 'FAKE ALARM'", startDate, endDate).
+		Where("is_alert = 1 "+envCondition+filterCondition+clusterFilter+stabilityFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? AND status = 'FAKE ALARM'", startDate, endDate).
 		Count(&currFake)
 
 	var currHandled int64
 	db.DB.Model(&models.Issue{}).
-		Where("is_alert = 1 "+envCondition+filterCondition+clusterFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? AND status != 'Created'", startDate, endDate).
+		Where("is_alert = 1 "+envCondition+filterCondition+clusterFilter+stabilityFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? AND status != 'Created'", startDate, endDate).
 		Count(&currHandled)
 
 	// 1.6 Rate Stats (Previous)
 	var prevFake int64
 	db.DB.Model(&models.Issue{}).
-		Where("is_alert = 1 "+envCondition+filterCondition+clusterFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? AND status = 'FAKE ALARM'", prevStartDate, prevEndDate).
+		Where("is_alert = 1 "+envCondition+filterCondition+clusterFilter+stabilityFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? AND status = 'FAKE ALARM'", prevStartDate, prevEndDate).
 		Count(&prevFake)
 
 	var prevHandled int64
 	db.DB.Model(&models.Issue{}).
-		Where("is_alert = 1 "+envCondition+filterCondition+clusterFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? AND status != 'Created'", prevStartDate, prevEndDate).
+		Where("is_alert = 1 "+envCondition+filterCondition+clusterFilter+stabilityFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? AND status != 'Created'", prevStartDate, prevEndDate).
 		Count(&prevHandled)
 
 	calcRate := func(num, den int64) float64 {
@@ -303,7 +310,7 @@ func GetDashboardData(c *gin.Context) {
 	db.DB.Raw(`
 		SELECT tenant_id, COUNT(*) as count
 		FROM issues
-		WHERE is_alert = 1 `+envCondition+filterCondition+clusterFilter+` AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?
+		WHERE is_alert = 1 `+envCondition+filterCondition+clusterFilter+stabilityFilter+` AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?
 		AND tenant_id != '' AND tenant_id IS NOT NULL
 		GROUP BY tenant_id
 		ORDER BY count DESC
@@ -314,7 +321,7 @@ func GetDashboardData(c *gin.Context) {
 	for _, t := range topTenants {
 		var prevCount int64
 		db.DB.Model(&models.Issue{}).
-			Where("is_alert = 1 "+envCondition+filterCondition+clusterFilter+" AND tenant_id = ? AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?", t.TenantID, prevStartDate, prevEndDate).
+			Where("is_alert = 1 "+envCondition+filterCondition+clusterFilter+stabilityFilter+" AND tenant_id = ? AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?", t.TenantID, prevStartDate, prevEndDate).
 			Count(&prevCount)
 
 		change, trend := calculateChange(t.Count, int(prevCount))
@@ -343,7 +350,7 @@ func GetDashboardData(c *gin.Context) {
 	db.DB.Raw(`
 		SELECT cluster_id, COUNT(*) as count
 		FROM issues
-		WHERE is_alert = 1 `+envCondition+filterCondition+clusterFilter+` AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?
+		WHERE is_alert = 1 `+envCondition+filterCondition+clusterFilter+stabilityFilter+` AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?
 		AND cluster_id != '' AND cluster_id IS NOT NULL
 		GROUP BY cluster_id
 		ORDER BY count DESC
@@ -353,7 +360,7 @@ func GetDashboardData(c *gin.Context) {
 	for _, c := range topClusters {
 		var prevCount int64
 		db.DB.Model(&models.Issue{}).
-			Where("is_alert = 1 "+envCondition+filterCondition+clusterFilter+" AND cluster_id = ? AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?", c.ClusterID, prevStartDate, prevEndDate).
+			Where("is_alert = 1 "+envCondition+filterCondition+clusterFilter+stabilityFilter+" AND cluster_id = ? AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?", c.ClusterID, prevStartDate, prevEndDate).
 			Count(&prevCount)
 
 		change, trend := calculateChange(c.Count, int(prevCount))
@@ -380,7 +387,7 @@ func GetDashboardData(c *gin.Context) {
 			COUNT(*) as total_count,
 			MAX(created) as last_seen
 		FROM issues
-		WHERE is_alert = 1 `+envCondition+filterCondition+clusterFilter+`
+		WHERE is_alert = 1 `+envCondition+filterCondition+clusterFilter+stabilityFilter+`
 			AND alert_signature IS NOT NULL 
 			AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?
 		GROUP BY alert_signature
@@ -397,7 +404,7 @@ func GetDashboardData(c *gin.Context) {
 				ELSE json_extract(components, '$[0]')
 			END as component,
 			COUNT(*) as count
-		FROM issues WHERE is_alert = 1 `+envCondition+filterCondition+clusterFilter+` AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?
+		FROM issues WHERE is_alert = 1 `+envCondition+filterCondition+clusterFilter+stabilityFilter+` AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?
 		GROUP BY component
 		ORDER BY count DESC
 		LIMIT 10
@@ -427,14 +434,14 @@ func GetDashboardData(c *gin.Context) {
 			SUM(CASE WHEN priority = 'Major' THEN 1 ELSE 0 END) as major_count,
 			SUM(CASE WHEN priority = 'Warning' THEN 1 ELSE 0 END) as warning_count
 		FROM issues
-		WHERE is_alert = 1 `+envCondition+filterCondition+clusterFilter+` AND SUBSTR(REPLACE(created, ' UTC', ''), 1, 10) BETWEEN ? AND ?
+		WHERE is_alert = 1 `+envCondition+filterCondition+clusterFilter+stabilityFilter+` AND SUBSTR(REPLACE(created, ' UTC', ''), 1, 10) BETWEEN ? AND ?
 		GROUP BY date
 		ORDER BY date ASC
 	`, startDate[:10], endDate[:10]).Scan(&trend)
 
 	// Priority Breakdown
 	var priorityCounts []PriorityCount
-	db.DB.Raw(`SELECT priority, COUNT(*) as count FROM issues WHERE is_alert=1 `+envCondition+filterCondition+clusterFilter+` AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? GROUP BY priority`, startDate, endDate).Scan(&priorityCounts)
+	db.DB.Raw(`SELECT priority, COUNT(*) as count FROM issues WHERE is_alert=1 `+envCondition+filterCondition+clusterFilter+stabilityFilter+` AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? GROUP BY priority`, startDate, endDate).Scan(&priorityCounts)
 
 	// Build MetricStats
 	totalChange, totalTrend := calculateChange(currTotal, prevTotal)
@@ -575,13 +582,15 @@ func GetDashboardIssues(c *gin.Context) {
 
 	// Build cluster filter to exclude test clusters
 	clusterFilter := buildClusterFilterCondition()
+	// Build stability governance filter to only include alerts with stability_governance label
+	stabilityFilter := buildStabilityGovernanceFilterCondition()
 
 	var issues []models.Issue
 	db.DB.Model(&models.Issue{}).
 		Select("issues.*").
 		Joins("LEFT JOIN muted_issues ON muted_issues.issue_id = issues.id").
 		Where("muted_issues.issue_id IS NULL").
-		Where("is_alert = 1 "+envCondition+filterCondition+clusterFilter+" AND REPLACE(issues.created, ' UTC', '') BETWEEN ? AND ?", startDate, endDate).
+		Where("is_alert = 1 "+envCondition+filterCondition+clusterFilter+stabilityFilter+" AND REPLACE(issues.created, ' UTC', '') BETWEEN ? AND ?", startDate, endDate).
 		Order("issues.created DESC").
 		Limit(pageSize).
 		Offset(offset).

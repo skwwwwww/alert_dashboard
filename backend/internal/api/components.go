@@ -366,17 +366,23 @@ func GetComponentStats(c *gin.Context) {
 
 	// Build cluster filter to exclude test clusters
 	clusterFilter := buildClusterFilterCondition()
+	// Build stability governance filter to only include alerts with stability_governance label
+	// Note: For "old-rules" component, this filter is not applied as it specifically aggregates empty stability_governance
+	stabilityFilter := ""
+	if name != "old-rules" {
+		stabilityFilter = " AND stability_governance != '' AND stability_governance IS NOT NULL"
+	}
 
 	// 1. Total Alerts (Current & Previous)
 	var currTotal int64
 	db.DB.Model(&models.Issue{}).
-		Where("is_alert = ? AND components LIKE ?"+envCondition+categoryCondition+stabilityCondition+clusterFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?",
+		Where("is_alert = ? AND components LIKE ?"+envCondition+categoryCondition+stabilityCondition+clusterFilter+stabilityFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?",
 			true, componentFilter, startDate, endDate).
 		Count(&currTotal)
 
 	var prevTotal int64
 	db.DB.Model(&models.Issue{}).
-		Where("is_alert = ? AND components LIKE ?"+envCondition+categoryCondition+stabilityCondition+clusterFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?",
+		Where("is_alert = ? AND components LIKE ?"+envCondition+categoryCondition+stabilityCondition+clusterFilter+stabilityFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?",
 			true, componentFilter, prevStartDate, prevEndDate).
 		Count(&prevTotal)
 
@@ -393,13 +399,13 @@ func GetComponentStats(c *gin.Context) {
 	// 1.5 Rate Stats (Current)
 	var currFake int64
 	db.DB.Model(&models.Issue{}).
-		Where("is_alert = ? AND components LIKE ?"+envCondition+categoryCondition+stabilityCondition+clusterFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? AND status = 'FAKE ALARM'",
+		Where("is_alert = ? AND components LIKE ?"+envCondition+categoryCondition+stabilityCondition+clusterFilter+stabilityFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? AND status = 'FAKE ALARM'",
 			true, componentFilter, startDate, endDate).
 		Count(&currFake)
 
 	var currHandled int64
 	db.DB.Model(&models.Issue{}).
-		Where("is_alert = ? AND components LIKE ?"+envCondition+categoryCondition+stabilityCondition+clusterFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? AND status != 'Created'",
+		Where("is_alert = ? AND components LIKE ?"+envCondition+categoryCondition+stabilityCondition+clusterFilter+stabilityFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? AND status != 'Created'",
 			true, componentFilter, startDate, endDate).
 		Count(&currHandled)
 
@@ -409,13 +415,13 @@ func GetComponentStats(c *gin.Context) {
 	// 1.6 Rate Stats (Previous)
 	var prevFake int64
 	db.DB.Model(&models.Issue{}).
-		Where("is_alert = ? AND components LIKE ?"+envCondition+categoryCondition+stabilityCondition+clusterFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? AND status = 'FAKE ALARM'",
+		Where("is_alert = ? AND components LIKE ?"+envCondition+categoryCondition+stabilityCondition+clusterFilter+stabilityFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? AND status = 'FAKE ALARM'",
 			true, componentFilter, prevStartDate, prevEndDate).
 		Count(&prevFake)
 
 	var prevHandled int64
 	db.DB.Model(&models.Issue{}).
-		Where("is_alert = ? AND components LIKE ?"+envCondition+categoryCondition+stabilityCondition+clusterFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? AND status != 'Created'",
+		Where("is_alert = ? AND components LIKE ?"+envCondition+categoryCondition+stabilityCondition+clusterFilter+stabilityFilter+" AND REPLACE(created, ' UTC', '') BETWEEN ? AND ? AND status != 'Created'",
 			true, componentFilter, prevStartDate, prevEndDate).
 		Count(&prevHandled)
 
@@ -461,7 +467,7 @@ func GetComponentStats(c *gin.Context) {
 			SUM(CASE WHEN priority = 'Warning' THEN 1 ELSE 0 END) as warning_count
 		FROM issues
 		WHERE is_alert = 1 
-			AND components LIKE ? `+envCondition+categoryCondition+stabilityCondition+clusterFilter+`
+			AND components LIKE ? `+envCondition+categoryCondition+stabilityCondition+clusterFilter+stabilityFilter+`
 			AND SUBSTR(REPLACE(created, ' UTC', ''), 1, 10) BETWEEN ? AND ?
 		GROUP BY date
 		ORDER BY date ASC
@@ -469,7 +475,7 @@ func GetComponentStats(c *gin.Context) {
 
 	// 3. Recent Issues
 	recentIssues := []models.Issue{}
-	db.DB.Where("is_alert = ? AND components LIKE ? "+envCondition+categoryCondition+stabilityCondition+clusterFilter, true, componentFilter).
+	db.DB.Where("is_alert = ? AND components LIKE ? "+envCondition+categoryCondition+stabilityCondition+clusterFilter+stabilityFilter, true, componentFilter).
 		Order("created DESC").
 		Limit(10).
 		Find(&recentIssues)
@@ -494,7 +500,7 @@ func GetComponentStats(c *gin.Context) {
 		SELECT tenant_id, COUNT(*) as count
 		FROM issues
 		WHERE is_alert = 1 
-			AND components LIKE ? `+envCondition+categoryCondition+stabilityCondition+clusterFilter+`
+			AND components LIKE ? `+envCondition+categoryCondition+stabilityCondition+clusterFilter+stabilityFilter+`
 			AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?
 			AND tenant_id != '' AND tenant_id IS NOT NULL
 		GROUP BY tenant_id
@@ -505,7 +511,7 @@ func GetComponentStats(c *gin.Context) {
 	for _, t := range topTenants {
 		var prevCount int64
 		db.DB.Model(&models.Issue{}).
-			Where("is_alert = 1 AND components LIKE ? "+envCondition+categoryCondition+stabilityCondition+clusterFilter+" AND tenant_id = ? AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?",
+			Where("is_alert = 1 AND components LIKE ? "+envCondition+categoryCondition+stabilityCondition+clusterFilter+stabilityFilter+" AND tenant_id = ? AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?",
 				componentFilter, t.TenantID, prevStartDate, prevEndDate).
 			Count(&prevCount)
 
@@ -544,7 +550,7 @@ func GetComponentStats(c *gin.Context) {
 		SELECT cluster_id, COUNT(*) as count
 		FROM issues
 		WHERE is_alert = 1 
-			AND components LIKE ? `+envCondition+categoryCondition+stabilityCondition+clusterFilter+`
+			AND components LIKE ? `+envCondition+categoryCondition+stabilityCondition+clusterFilter+stabilityFilter+`
 			AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?
 			AND cluster_id != '' AND cluster_id IS NOT NULL
 		GROUP BY cluster_id
@@ -555,7 +561,7 @@ func GetComponentStats(c *gin.Context) {
 	for _, c := range topClusters {
 		var prevCount int64
 		db.DB.Model(&models.Issue{}).
-			Where("is_alert = 1 AND components LIKE ? "+envCondition+categoryCondition+stabilityCondition+clusterFilter+" AND cluster_id = ? AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?",
+			Where("is_alert = 1 AND components LIKE ? "+envCondition+categoryCondition+stabilityCondition+clusterFilter+stabilityFilter+" AND cluster_id = ? AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?",
 				componentFilter, c.ClusterID, prevStartDate, prevEndDate).
 			Count(&prevCount)
 
@@ -584,7 +590,7 @@ func GetComponentStats(c *gin.Context) {
 		SELECT alert_signature as signature, COUNT(*) as count
 		FROM issues
 		WHERE is_alert = 1 
-			AND components LIKE ? `+envCondition+categoryCondition+stabilityCondition+clusterFilter+`
+			AND components LIKE ? `+envCondition+categoryCondition+stabilityCondition+clusterFilter+stabilityFilter+`
 			AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?
 			AND alert_signature IS NOT NULL AND alert_signature != ''
 		GROUP BY alert_signature
