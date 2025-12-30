@@ -44,7 +44,7 @@ interface DashboardData {
     nonProdAlerts: MetricStat;
     criticalAlerts: MetricStat;
     byPriority: { priority: string; count: number }[];
-    bySignature: { signature: string; total_count: number; last_seen: string }[];
+    bySignature: { signature: string; total_count: number; last_seen: string; fake_alert_rate: number; mttr: number }[];
     byComponent: { component: string; count: number }[];
     byTenant: TenantCount[];
     byCluster: ClusterCount[];
@@ -175,6 +175,73 @@ export const GlobalDashboard = () => {
                     />
                 </div>
             </Panel>
+
+            {/* Top Signatures - Moved to front */}
+            <div className="rounded-xl border border-border bg-white shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-border bg-gray-50/50">
+                    <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-bold text-gray-900">Top 10 Alert Signatures</h3>
+                        <button className="text-sm text-blue-600 font-medium hover:underline">View All</button>
+                    </div>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full text-sm text-left">
+                        <thead className="bg-gray-50 text-gray-500 border-b border-gray-200">
+                            <tr>
+                                <th className="px-6 py-3 font-semibold">Signature</th>
+                                <th className="px-6 py-3 font-semibold text-right">Count</th>
+                                <th className="px-6 py-3 font-semibold text-right">Fake Alert Rate</th>
+                                <th className="px-6 py-3 font-semibold text-right">MTTR</th>
+                                <th className="px-6 py-3 font-semibold text-right">Last Seen</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {(data.bySignature || []).map((sig) => (
+                                <tr
+                                    key={sig.signature}
+                                    className="hover:bg-blue-50/50 transition-colors group cursor-pointer"
+                                    onClick={() => setTrendModal({
+                                        isOpen: true,
+                                        title: `Signature: ${sig.signature.substring(0, 50)}... - Alert Trend`,
+                                        signature: sig.signature
+                                    })}
+                                >
+                                    <td className="px-6 py-4 font-mono text-xs text-gray-600 group-hover:text-blue-700 font-medium transition-colors">
+                                        {sig.signature}
+                                    </td>
+                                    <td className="px-6 py-4 text-right font-bold text-gray-900">
+                                        {sig.total_count}
+                                    </td>
+                                    <td className="px-6 py-4 text-right">
+                                        <span className={clsx(
+                                            "font-semibold",
+                                            sig.fake_alert_rate >= 50 ? "text-red-600" :
+                                                sig.fake_alert_rate >= 20 ? "text-orange-600" :
+                                                    "text-gray-600"
+                                        )}>
+                                            {sig.fake_alert_rate.toFixed(1)}%
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 text-right">
+                                        <span className={clsx(
+                                            "font-semibold",
+                                            sig.mttr >= 24 ? "text-red-600" :
+                                                sig.mttr >= 12 ? "text-orange-600" :
+                                                    sig.mttr > 0 ? "text-green-600" :
+                                                        "text-gray-500"
+                                        )}>
+                                            {sig.mttr > 0 ? `${sig.mttr.toFixed(1)}h` : '-'}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 text-right text-gray-500">
+                                        {sig.last_seen.replace(" UTC", "")}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Main Trend Chart */}
@@ -380,49 +447,6 @@ export const GlobalDashboard = () => {
                 </div>
             </div>
 
-            {/* Top Signatures */}
-            <div className="rounded-xl border border-border bg-white shadow-sm overflow-hidden">
-                <div className="p-6 border-b border-border bg-gray-50/50">
-                    <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-bold text-gray-900">Top 10 Alert Signatures</h3>
-                        <button className="text-sm text-blue-600 font-medium hover:underline">View All</button>
-                    </div>
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                        <thead className="bg-gray-50 text-gray-500 border-b border-gray-200">
-                            <tr>
-                                <th className="px-6 py-3 font-semibold">Signature</th>
-                                <th className="px-6 py-3 font-semibold text-right">Count</th>
-                                <th className="px-6 py-3 font-semibold text-right">Last Seen</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                            {(data.bySignature || []).map((sig) => (
-                                <tr
-                                    key={sig.signature}
-                                    className="hover:bg-blue-50/50 transition-colors group cursor-pointer"
-                                    onClick={() => setTrendModal({
-                                        isOpen: true,
-                                        title: `Signature: ${sig.signature.substring(0, 50)}... - Alert Trend`,
-                                        signature: sig.signature
-                                    })}
-                                >
-                                    <td className="px-6 py-4 font-mono text-xs text-gray-600 group-hover:text-blue-700 font-medium transition-colors">
-                                        {sig.signature}
-                                    </td>
-                                    <td className="px-6 py-4 text-right font-bold text-gray-900">
-                                        {sig.total_count}
-                                    </td>
-                                    <td className="px-6 py-4 text-right text-gray-500">
-                                        {sig.last_seen.replace(" UTC", "")}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
 
             {/* Trend Modal */}
             <TrendModal
