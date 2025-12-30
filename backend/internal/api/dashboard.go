@@ -17,13 +17,15 @@ var (
 	testClusterIDsCache      []string
 	testClusterIDsMutex      sync.RWMutex
 	testClusterIDsLastUpdate time.Time
-	testClusterIDsCacheTTL   = 5 * time.Minute // Cache for 5 minutes
+	testClusterIDsCacheTTL   = 30 * time.Minute // Cache for 30 minutes (increased from 5 minutes)
+	testClusterIDsUpdating   bool               // Flag to prevent concurrent updates
 )
 
 // getTestClusterIDs returns a list of cluster_ids that have "test" in their cluster_name
-// Results are cached for performance
+// Results are cached for performance. Uses concurrent API calls to improve performance.
 func getTestClusterIDs() []string {
 	testClusterIDsMutex.RLock()
+	// Return cached data if still valid
 	if time.Since(testClusterIDsLastUpdate) < testClusterIDsCacheTTL && len(testClusterIDsCache) >= 0 {
 		cache := testClusterIDsCache
 		testClusterIDsMutex.RUnlock()
@@ -31,7 +33,7 @@ func getTestClusterIDs() []string {
 	}
 	testClusterIDsMutex.RUnlock()
 
-	// Need to refresh cache
+	// Need to refresh cache - use write lock
 	testClusterIDsMutex.Lock()
 	defer testClusterIDsMutex.Unlock()
 
@@ -40,25 +42,94 @@ func getTestClusterIDs() []string {
 		return testClusterIDsCache
 	}
 
-	// Get all distinct cluster_ids from database
-	var clusterIDs []string
-	db.DB.Model(&models.Issue{}).
-		Where("cluster_id != '' AND cluster_id IS NOT NULL").
-		Distinct("cluster_id").
-		Pluck("cluster_id", &clusterIDs)
-
-	// Resolve each cluster_id and check if name contains "test"
-	testClusterIDs := []string{}
-	for _, clusterID := range clusterIDs {
-		info, err := services.GetNameResolver().Resolve(clusterID)
-		if err == nil && strings.Contains(strings.ToLower(info.Name), "test") {
-			testClusterIDs = append(testClusterIDs, clusterID)
+	// Prevent concurrent updates
+	if testClusterIDsUpdating {
+		// Another goroutine is updating, return stale cache if available
+		if len(testClusterIDsCache) > 0 {
+			return testClusterIDsCache
 		}
+		// No cache available, return empty (will be updated by the other goroutine)
+		return []string{}
 	}
 
-	testClusterIDsCache = testClusterIDs
-	testClusterIDsLastUpdate = time.Now()
-	return testClusterIDs
+	testClusterIDsUpdating = true
+	// Update cache in background to avoid blocking
+	go func() {
+		defer func() {
+			testClusterIDsMutex.Lock()
+			testClusterIDsUpdating = false
+			testClusterIDsMutex.Unlock()
+		}()
+
+		// Get all distinct cluster_ids from database
+		var clusterIDs []string
+		db.DB.Model(&models.Issue{}).
+			Where("cluster_id != '' AND cluster_id IS NOT NULL").
+			Distinct("cluster_id").
+			Pluck("cluster_id", &clusterIDs)
+
+		if len(clusterIDs) == 0 {
+			return
+		}
+
+		// Use concurrent workers to resolve cluster names
+		const maxWorkers = 10 // Limit concurrent API calls
+		type result struct {
+			clusterID string
+			isTest    bool
+		}
+
+		clusterChan := make(chan string, len(clusterIDs))
+		resultChan := make(chan result, len(clusterIDs))
+
+		// Start workers
+		var wg sync.WaitGroup
+		for i := 0; i < maxWorkers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for clusterID := range clusterChan {
+					info, err := services.GetNameResolver().Resolve(clusterID)
+					isTest := err == nil && strings.Contains(strings.ToLower(info.Name), "test")
+					resultChan <- result{clusterID: clusterID, isTest: isTest}
+				}
+			}()
+		}
+
+		// Send all cluster IDs to workers
+		go func() {
+			for _, clusterID := range clusterIDs {
+				clusterChan <- clusterID
+			}
+			close(clusterChan)
+		}()
+
+		// Wait for all workers to finish
+		go func() {
+			wg.Wait()
+			close(resultChan)
+		}()
+
+		// Collect results
+		testClusterIDs := []string{}
+		for res := range resultChan {
+			if res.isTest {
+				testClusterIDs = append(testClusterIDs, res.clusterID)
+			}
+		}
+
+		// Update cache
+		testClusterIDsMutex.Lock()
+		testClusterIDsCache = testClusterIDs
+		testClusterIDsLastUpdate = time.Now()
+		testClusterIDsMutex.Unlock()
+	}()
+
+	// Return stale cache if available, otherwise empty
+	if len(testClusterIDsCache) > 0 {
+		return testClusterIDsCache
+	}
+	return []string{}
 }
 
 // buildClusterFilterCondition builds SQL condition to exclude test clusters
@@ -130,9 +201,11 @@ type PriorityCount struct {
 }
 
 type SignatureCount struct {
-	Signature  string `json:"signature"`
-	TotalCount int    `json:"total_count"`
-	LastSeen   string `json:"last_seen"`
+	Signature     string  `json:"signature"`
+	TotalCount    int     `json:"total_count"`
+	LastSeen      string  `json:"last_seen"`
+	FakeAlertRate float64 `json:"fake_alert_rate"` // Percentage of fake alerts
+	MTTR          float64 `json:"mttr"`            // Mean Time To Repair in hours
 }
 
 type ComponentCount struct {
@@ -379,12 +452,19 @@ func GetDashboardData(c *gin.Context) {
 		})
 	}
 
-	// 3. Top Signatures (Current)
-	var signatures []SignatureCount
+	// 3. Top Signatures (Current) with Fake Alert Rate
+	type SignatureRaw struct {
+		Signature  string
+		TotalCount int
+		FakeCount  int
+		LastSeen   string
+	}
+	var signaturesRaw []SignatureRaw
 	db.DB.Raw(`
 		SELECT 
 			alert_signature as signature,
 			COUNT(*) as total_count,
+			SUM(CASE WHEN status = 'FAKE ALARM' THEN 1 ELSE 0 END) as fake_count,
 			MAX(created) as last_seen
 		FROM issues
 		WHERE is_alert = 1 `+envCondition+filterCondition+clusterFilter+stabilityFilter+`
@@ -393,7 +473,46 @@ func GetDashboardData(c *gin.Context) {
 		GROUP BY alert_signature
 		ORDER BY total_count DESC
 		LIMIT 10
-	`, startDate, endDate).Scan(&signatures)
+	`, startDate, endDate).Scan(&signaturesRaw)
+
+	// Calculate fake alert rate and MTTR for each signature
+	signatures := make([]SignatureCount, len(signaturesRaw))
+	for i, sig := range signaturesRaw {
+		fakeRate := 0.0
+		if sig.TotalCount > 0 {
+			fakeRate = float64(sig.FakeCount) / float64(sig.TotalCount) * 100
+		}
+
+		// Calculate MTTR for this signature (average time to repair for handled alerts)
+		var mttrResult struct {
+			AvgHours float64
+		}
+		db.DB.Raw(`
+			SELECT 
+				AVG(
+					(julianday('now') - julianday(REPLACE(created, ' UTC', ''))) * 24
+				) as avg_hours
+			FROM issues
+			WHERE is_alert = 1 `+envCondition+filterCondition+clusterFilter+stabilityFilter+`
+				AND alert_signature = ?
+				AND REPLACE(created, ' UTC', '') BETWEEN ? AND ?
+				AND status != 'Created'
+				AND status != ''
+		`, sig.Signature, startDate, endDate).Scan(&mttrResult)
+
+		mttr := mttrResult.AvgHours
+		if mttr < 0 {
+			mttr = 0
+		}
+
+		signatures[i] = SignatureCount{
+			Signature:     sig.Signature,
+			TotalCount:    sig.TotalCount,
+			LastSeen:      sig.LastSeen,
+			FakeAlertRate: fakeRate,
+			MTTR:          mttr,
+		}
+	}
 
 	// 4. Top Components (Current)
 	var components []ComponentCount
